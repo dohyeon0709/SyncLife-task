@@ -32,7 +32,8 @@ export default function Board() {
   const queryClient = useQueryClient()
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all')
+  const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null)
@@ -216,12 +217,37 @@ export default function Board() {
     })
   }
 
+  const allTags = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of tasks ?? []) {
+      for (const tag of t.tags ?? []) set.add(tag)
+    }
+    return [...set].sort()
+  }, [tasks])
+
   const filteredTasks = useMemo(
-    () => filterTasks(tasks ?? [], { search, priority: priorityFilter }),
-    [tasks, search, priorityFilter],
+    () =>
+      filterTasks(tasks ?? [], {
+        search,
+        priorities: selectedPriorities,
+        tags: selectedTags,
+      }),
+    [tasks, search, selectedPriorities, selectedTags],
   )
 
   const byStatus = useMemo(() => groupByStatus(filteredTasks), [filteredTasks])
+
+  const togglePriority = (p: Priority) => {
+    setSelectedPriorities((prev) =>
+      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+    )
+  }
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((x) => x !== tag) : [...prev, tag],
+    )
+  }
 
   if (isPending) {
     return <p className="hint">불러오는 중…</p>
@@ -253,17 +279,32 @@ export default function Board() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select
-          value={priorityFilter}
-          onChange={(e) =>
-            setPriorityFilter(e.target.value as Priority | 'all')
-          }
-        >
-          <option value="all">All</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
+        <div className="filter-group">
+          {(['high', 'medium', 'low'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={`chip ${selectedPriorities.includes(p) ? 'chip-active' : ''}`}
+              onClick={() => togglePriority(p)}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+        {allTags.length > 0 && (
+          <div className="filter-group">
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={`chip ${selectedTags.includes(tag) ? 'chip-active' : ''}`}
+                onClick={() => toggleTag(tag)}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
+        )}
         <button className="btn-primary" onClick={() => setIsCreateOpen(true)}>
           + 새 태스크
         </button>

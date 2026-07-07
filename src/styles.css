@@ -48,6 +48,8 @@ body {
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -59,6 +61,27 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
+}
+
+.filter-group {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.chip-active {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
 }
 
 .state-error {
