@@ -13,6 +13,14 @@ import { Toast } from './components/Toast'
 import { Modal } from './components/Modal'
 import { TaskForm, type TaskFormValues } from './components/TaskForm'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import {
+  filterTasks,
+  groupByStatus,
+  insertTask,
+  removeTask,
+  replaceTask,
+  updateTaskFields,
+} from './lib/tasks'
 
 const COLUMNS: { status: Status; title: string }[] = [
   { status: 'todo', title: 'To Do' },
@@ -67,8 +75,9 @@ export default function Board() {
     onMutate: async ({ id, status }) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const previous = queryClient.getQueryData<Task[]>(['tasks'])
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-        prev?.map((t) => (t.id === id ? { ...t, status } : t)),
+      queryClient.setQueryData<Task[]>(
+        ['tasks'],
+        (prev) => prev && updateTaskFields(prev, id, { status }),
       )
       return { previous }
     },
@@ -81,8 +90,9 @@ export default function Board() {
     },
     onSuccess: (serverTask, vars) => {
       if (moveSeqRef.current.get(vars.id) !== vars.seq) return
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-        prev?.map((t) => (t.id === serverTask.id ? serverTask : t)),
+      queryClient.setQueryData<Task[]>(
+        ['tasks'],
+        (prev) => prev && replaceTask(prev, serverTask.id, serverTask),
       )
     },
   })
@@ -110,10 +120,9 @@ export default function Board() {
         updatedAt: now,
         version: 0,
       }
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) => [
-        optimisticTask,
-        ...(prev ?? []),
-      ])
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        insertTask(prev ?? [], optimisticTask),
+      )
       return { previous, tempId }
     },
     onError: (_err, values, context) => {
@@ -121,8 +130,10 @@ export default function Board() {
       setToastMessage(`"${values.title}" 생성에 실패했습니다.`)
     },
     onSuccess: (serverTask, _values, context) => {
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-        prev?.map((t) => (t.id === context?.tempId ? serverTask : t)),
+      queryClient.setQueryData<Task[]>(
+        ['tasks'],
+        (prev) =>
+          prev && context && replaceTask(prev, context.tempId, serverTask),
       )
     },
   })
@@ -150,12 +161,15 @@ export default function Board() {
     onMutate: async ({ id, title, priority, description }) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const previous = queryClient.getQueryData<Task[]>(['tasks'])
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-        prev?.map((t) =>
-          t.id === id
-            ? { ...t, title, priority, description: description || undefined }
-            : t,
-        ),
+      queryClient.setQueryData<Task[]>(
+        ['tasks'],
+        (prev) =>
+          prev &&
+          updateTaskFields(prev, id, {
+            title,
+            priority,
+            description: description || undefined,
+          }),
       )
       return { previous }
     },
@@ -164,8 +178,9 @@ export default function Board() {
       setToastMessage(`"${vars.title}" 수정에 실패했습니다.`)
     },
     onSuccess: (serverTask) => {
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-        prev?.map((t) => (t.id === serverTask.id ? serverTask : t)),
+      queryClient.setQueryData<Task[]>(
+        ['tasks'],
+        (prev) => prev && replaceTask(prev, serverTask.id, serverTask),
       )
     },
   })
@@ -175,8 +190,9 @@ export default function Board() {
     onMutate: async (task) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const previous = queryClient.getQueryData<Task[]>(['tasks'])
-      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-        prev?.filter((t) => t.id !== task.id),
+      queryClient.setQueryData<Task[]>(
+        ['tasks'],
+        (prev) => prev && removeTask(prev, task.id),
       )
       return { previous }
     },
@@ -200,25 +216,12 @@ export default function Board() {
     })
   }
 
-  const filteredTasks = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return (tasks ?? []).filter((t) => {
-      const matchesSearch = term === '' || t.title.toLowerCase().includes(term)
-      const matchesPriority =
-        priorityFilter === 'all' || t.priority === priorityFilter
-      return matchesSearch && matchesPriority
-    })
-  }, [tasks, search, priorityFilter])
+  const filteredTasks = useMemo(
+    () => filterTasks(tasks ?? [], { search, priority: priorityFilter }),
+    [tasks, search, priorityFilter],
+  )
 
-  const byStatus = useMemo(() => {
-    const map: Record<Status, Task[]> = {
-      'todo': [],
-      'in-progress': [],
-      'done': [],
-    }
-    for (const t of filteredTasks) map[t.status].push(t)
-    return map
-  }, [filteredTasks])
+  const byStatus = useMemo(() => groupByStatus(filteredTasks), [filteredTasks])
 
   if (isPending) {
     return <p className="hint">불러오는 중…</p>
