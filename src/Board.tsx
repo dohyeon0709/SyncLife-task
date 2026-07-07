@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Task, Status } from './types'
-import { getTasks, updateTask } from './api/client'
+import { ApiError, getTasks, updateTask } from './api/client'
 import { Column } from './components/Column'
 import { Toast } from './components/Toast'
 
@@ -14,6 +14,7 @@ const COLUMNS: { status: Status; title: string }[] = [
 export default function Board() {
   const queryClient = useQueryClient()
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const moveSeqRef = useRef(new Map<string, number>())
 
   const {
     data: tasks,
@@ -27,7 +28,7 @@ export default function Board() {
   })
 
   const moveMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       status,
       version,
@@ -36,7 +37,19 @@ export default function Board() {
       status: Status
       version: number
       title: string
-    }) => updateTask(id, { status, version }),
+      seq: number
+    }) => {
+      try {
+        return await updateTask(id, { status, version })
+      } catch (err) {
+        // 409(버전 충돌)면 서버가 알려준 최신 version으로 한 번만 재시도한다.
+        if (err instanceof ApiError && err.status === 409) {
+          const current = (err.payload as { current: Task }).current
+          return await updateTask(id, { status, version: current.version })
+        }
+        throw err
+      }
+    },
     onMutate: async ({ id, status }) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const previous = queryClient.getQueryData<Task[]>(['tasks'])
@@ -46,12 +59,14 @@ export default function Board() {
       return { previous }
     },
     onError: (_err, vars, context) => {
+      if (moveSeqRef.current.get(vars.id) !== vars.seq) return
       queryClient.setQueryData(['tasks'], context?.previous)
       setToastMessage(
         `"${vars.title}" 이동에 실패했습니다. 이전 상태로 되돌렸습니다.`,
       )
     },
-    onSuccess: (serverTask) => {
+    onSuccess: (serverTask, vars) => {
+      if (moveSeqRef.current.get(vars.id) !== vars.seq) return
       queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
         prev?.map((t) => (t.id === serverTask.id ? serverTask : t)),
       )
@@ -61,11 +76,14 @@ export default function Board() {
   const moveTask = (id: string, status: Status) => {
     const task = tasks?.find((t) => t.id === id)
     if (!task) return
+    const seq = (moveSeqRef.current.get(id) ?? 0) + 1
+    moveSeqRef.current.set(id, seq)
     moveMutation.mutate({
       id,
       status,
       version: task.version,
       title: task.title,
+      seq,
     })
   }
 
