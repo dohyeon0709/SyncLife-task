@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Task, Status } from './types'
-import { getTasks } from './api/client'
+import { getTasks, updateTask } from './api/client'
 import { Column } from './components/Column'
+import { Toast } from './components/Toast'
 
 const COLUMNS: { status: Status; title: string }[] = [
   { status: 'todo', title: 'To Do' },
@@ -12,6 +13,7 @@ const COLUMNS: { status: Status; title: string }[] = [
 
 export default function Board() {
   const queryClient = useQueryClient()
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   const {
     data: tasks,
@@ -24,15 +26,47 @@ export default function Board() {
     queryFn: ({ signal }) => getTasks(signal),
   })
 
-  // ⚠️ 서버에 저장하지 않고 캐시만 바꾸는 "순진한" 이동입니다.
-  // TODO(P1): 낙관적 업데이트 + 실패 시 롤백 + 경쟁 상태 처리를 구현하세요. (이슈 #2, #3)
-  //   - updateTask(id, { status, version }) 로 서버에 반영
-  //   - 실패(15%)하면 이전 상태로 되돌리고 사용자에게 알림
-  //   - 같은 카드를 빠르게 연속 이동해도 최종 상태가 서버와 일치하도록
+  const moveMutation = useMutation({
+    mutationFn: ({
+      id,
+      status,
+      version,
+    }: {
+      id: string
+      status: Status
+      version: number
+      title: string
+    }) => updateTask(id, { status, version }),
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      const previous = queryClient.getQueryData<Task[]>(['tasks'])
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        prev?.map((t) => (t.id === id ? { ...t, status } : t)),
+      )
+      return { previous }
+    },
+    onError: (_err, vars, context) => {
+      queryClient.setQueryData(['tasks'], context?.previous)
+      setToastMessage(
+        `"${vars.title}" 이동에 실패했습니다. 이전 상태로 되돌렸습니다.`,
+      )
+    },
+    onSuccess: (serverTask) => {
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        prev?.map((t) => (t.id === serverTask.id ? serverTask : t)),
+      )
+    },
+  })
+
   const moveTask = (id: string, status: Status) => {
-    queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
-      prev?.map((t) => (t.id === id ? { ...t, status } : t)),
-    )
+    const task = tasks?.find((t) => t.id === id)
+    if (!task) return
+    moveMutation.mutate({
+      id,
+      status,
+      version: task.version,
+      title: task.title,
+    })
   }
 
   const byStatus = useMemo(() => {
@@ -66,16 +100,19 @@ export default function Board() {
   }
 
   return (
-    <div className="board">
-      {COLUMNS.map((col) => (
-        <Column
-          key={col.status}
-          title={col.title}
-          status={col.status}
-          tasks={byStatus[col.status]}
-          onMove={moveTask}
-        />
-      ))}
-    </div>
+    <>
+      <div className="board">
+        {COLUMNS.map((col) => (
+          <Column
+            key={col.status}
+            title={col.title}
+            status={col.status}
+            tasks={byStatus[col.status]}
+            onMove={moveTask}
+          />
+        ))}
+      </div>
+      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+    </>
   )
 }

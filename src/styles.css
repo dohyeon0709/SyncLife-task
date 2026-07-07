@@ -16,7 +16,9 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Malgun Gothic', sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Malgun Gothic',
+    sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -46,6 +48,19 @@ body {
 
 .state-error {
   color: var(--high);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(9, 30, 66, 0.24);
 }
 
 .state-error button {
