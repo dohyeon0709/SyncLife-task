@@ -46,6 +46,21 @@ body {
   margin: 24px 0;
 }
 
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.search-input {
+  flex: 1;
+  max-width: 320px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
 .state-error {
   color: var(--high);
 }
@@ -98,10 +113,7 @@ body {
 }
 
 .column-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  /* 대량 렌더 시 컬럼이 무한정 길어지지 않도록 스크롤만 걸어둡니다. */
+  /* react-virtual이 보이는 카드만 절대 위치로 렌더하므로 스크롤 컨테이너 역할만 한다. */
   max-height: 75vh;
   overflow-y: auto;
 }

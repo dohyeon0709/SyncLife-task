@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Task, Status } from './types'
+import type { Task, Status, Priority } from './types'
 import { ApiError, getTasks, updateTask } from './api/client'
 import { Column } from './components/Column'
 import { Toast } from './components/Toast'
@@ -14,6 +14,8 @@ const COLUMNS: { status: Status; title: string }[] = [
 export default function Board() {
   const queryClient = useQueryClient()
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all')
   const moveSeqRef = useRef(new Map<string, number>())
 
   const {
@@ -87,15 +89,25 @@ export default function Board() {
     })
   }
 
+  const filteredTasks = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return (tasks ?? []).filter((t) => {
+      const matchesSearch = term === '' || t.title.toLowerCase().includes(term)
+      const matchesPriority =
+        priorityFilter === 'all' || t.priority === priorityFilter
+      return matchesSearch && matchesPriority
+    })
+  }, [tasks, search, priorityFilter])
+
   const byStatus = useMemo(() => {
     const map: Record<Status, Task[]> = {
       'todo': [],
       'in-progress': [],
       'done': [],
     }
-    for (const t of tasks ?? []) map[t.status].push(t)
+    for (const t of filteredTasks) map[t.status].push(t)
     return map
-  }, [tasks])
+  }, [filteredTasks])
 
   if (isPending) {
     return <p className="hint">불러오는 중…</p>
@@ -119,6 +131,26 @@ export default function Board() {
 
   return (
     <>
+      <div className="toolbar">
+        <input
+          type="text"
+          className="search-input"
+          placeholder="제목 검색…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          value={priorityFilter}
+          onChange={(e) =>
+            setPriorityFilter(e.target.value as Priority | 'all')
+          }
+        >
+          <option value="all">All</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
       <div className="board">
         {COLUMNS.map((col) => (
           <Column
