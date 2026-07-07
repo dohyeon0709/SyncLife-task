@@ -65,7 +65,6 @@ export default function Board() {
       try {
         return await updateTask(id, { status, version })
       } catch (err) {
-        // 409(버전 충돌)면 서버가 알려준 최신 version으로 한 번만 재시도한다.
         if (err instanceof ApiError && err.status === 409) {
           const current = (err.payload as { current: Task }).current
           return await updateTask(id, { status, version: current.version })
@@ -174,7 +173,18 @@ export default function Board() {
       )
       return { previous }
     },
-    onError: (_err, vars, context) => {
+    onError: (err, vars, context) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const current = (err.payload as { current: Task }).current
+        queryClient.setQueryData<Task[]>(
+          ['tasks'],
+          (prev) => prev && replaceTask(prev, vars.id, current),
+        )
+        setToastMessage(
+          `"${vars.title}"이(가) 이미 변경되었습니다. 최신 내용으로 갱신했습니다. 다시 수정해 주세요.`,
+        )
+        return
+      }
       queryClient.setQueryData(['tasks'], context?.previous)
       setToastMessage(`"${vars.title}" 수정에 실패했습니다.`)
     },
