@@ -8,11 +8,12 @@ interface Props {
   status: Status
   tasks: Task[]
   onMove: (id: string, status: Status) => void
+  onEdit: (task: Task) => void
 }
 
 const ESTIMATED_ROW_HEIGHT = 78
 
-export function Column({ title, status, tasks, onMove }: Props) {
+export function Column({ title, status, tasks, onMove, onEdit }: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
 
   const virtualizer = useVirtualizer({
@@ -54,7 +55,7 @@ export function Column({ title, status, tasks, onMove }: Props) {
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <Card task={task} />
+                <Card task={task} onClick={onEdit} />
               </div>
             )
           })}

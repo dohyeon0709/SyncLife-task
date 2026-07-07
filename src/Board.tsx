@@ -1,9 +1,18 @@
 import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Task, Status, Priority } from './types'
-import { ApiError, getTasks, updateTask } from './api/client'
+import {
+  ApiError,
+  createTask,
+  deleteTask,
+  getTasks,
+  updateTask,
+} from './api/client'
 import { Column } from './components/Column'
 import { Toast } from './components/Toast'
+import { Modal } from './components/Modal'
+import { TaskForm, type TaskFormValues } from './components/TaskForm'
+import { ConfirmDialog } from './components/ConfirmDialog'
 
 const COLUMNS: { status: Status; title: string }[] = [
   { status: 'todo', title: 'To Do' },
@@ -16,6 +25,9 @@ export default function Board() {
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all')
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null)
   const moveSeqRef = useRef(new Map<string, number>())
 
   const {
@@ -72,6 +84,105 @@ export default function Board() {
       queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
         prev?.map((t) => (t.id === serverTask.id ? serverTask : t)),
       )
+    },
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (values: TaskFormValues) =>
+      createTask({
+        title: values.title,
+        priority: values.priority,
+        description: values.description || undefined,
+        status: 'todo',
+      }),
+    onMutate: async (values) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      const previous = queryClient.getQueryData<Task[]>(['tasks'])
+      const tempId = `temp-${crypto.randomUUID()}`
+      const now = new Date().toISOString()
+      const optimisticTask: Task = {
+        id: tempId,
+        title: values.title,
+        description: values.description || undefined,
+        status: 'todo',
+        priority: values.priority,
+        createdAt: now,
+        updatedAt: now,
+        version: 0,
+      }
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) => [
+        optimisticTask,
+        ...(prev ?? []),
+      ])
+      return { previous, tempId }
+    },
+    onError: (_err, values, context) => {
+      queryClient.setQueryData(['tasks'], context?.previous)
+      setToastMessage(`"${values.title}" 생성에 실패했습니다.`)
+    },
+    onSuccess: (serverTask, _values, context) => {
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        prev?.map((t) => (t.id === context?.tempId ? serverTask : t)),
+      )
+    },
+  })
+
+  const editMutation = useMutation({
+    mutationFn: ({
+      id,
+      version,
+      title,
+      priority,
+      description,
+    }: {
+      id: string
+      version: number
+      title: string
+      priority: Priority
+      description: string
+    }) =>
+      updateTask(id, {
+        title,
+        priority,
+        description: description || undefined,
+        version,
+      }),
+    onMutate: async ({ id, title, priority, description }) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      const previous = queryClient.getQueryData<Task[]>(['tasks'])
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        prev?.map((t) =>
+          t.id === id
+            ? { ...t, title, priority, description: description || undefined }
+            : t,
+        ),
+      )
+      return { previous }
+    },
+    onError: (_err, vars, context) => {
+      queryClient.setQueryData(['tasks'], context?.previous)
+      setToastMessage(`"${vars.title}" 수정에 실패했습니다.`)
+    },
+    onSuccess: (serverTask) => {
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        prev?.map((t) => (t.id === serverTask.id ? serverTask : t)),
+      )
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (task: Task) => deleteTask(task.id),
+    onMutate: async (task) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      const previous = queryClient.getQueryData<Task[]>(['tasks'])
+      queryClient.setQueryData<Task[]>(['tasks'], (prev) =>
+        prev?.filter((t) => t.id !== task.id),
+      )
+      return { previous }
+    },
+    onError: (_err, task, context) => {
+      queryClient.setQueryData(['tasks'], context?.previous)
+      setToastMessage(`"${task.title}" 삭제에 실패했습니다.`)
     },
   })
 
@@ -150,7 +261,63 @@ export default function Board() {
           <option value="medium">Medium</option>
           <option value="low">Low</option>
         </select>
+        <button className="btn-primary" onClick={() => setIsCreateOpen(true)}>
+          + 새 태스크
+        </button>
       </div>
+      {isCreateOpen && (
+        <Modal title="새 태스크" onClose={() => setIsCreateOpen(false)}>
+          <TaskForm
+            submitLabel="생성"
+            onCancel={() => setIsCreateOpen(false)}
+            onSubmit={(values) => {
+              createMutation.mutate(values)
+              setIsCreateOpen(false)
+            }}
+          />
+        </Modal>
+      )}
+      {editingTask && (
+        <Modal title="태스크 수정" onClose={() => setEditingTask(null)}>
+          <TaskForm
+            initial={{
+              title: editingTask.title,
+              priority: editingTask.priority,
+              description: editingTask.description ?? '',
+            }}
+            submitLabel="저장"
+            onCancel={() => setEditingTask(null)}
+            onSubmit={(values) => {
+              editMutation.mutate({
+                id: editingTask.id,
+                version: editingTask.version,
+                ...values,
+              })
+              setEditingTask(null)
+            }}
+          />
+          <button
+            type="button"
+            className="btn-danger-link"
+            onClick={() => {
+              setDeleteTarget(editingTask)
+              setEditingTask(null)
+            }}
+          >
+            이 태스크 삭제
+          </button>
+        </Modal>
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          message={`"${deleteTarget.title}"를 삭제할까요?`}
+          onConfirm={() => {
+            deleteMutation.mutate(deleteTarget)
+            setDeleteTarget(null)
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
       <div className="board">
         {COLUMNS.map((col) => (
           <Column
@@ -159,6 +326,7 @@ export default function Board() {
             status={col.status}
             tasks={byStatus[col.status]}
             onMove={moveTask}
+            onEdit={setEditingTask}
           />
         ))}
       </div>
