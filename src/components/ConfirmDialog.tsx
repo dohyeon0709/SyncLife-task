@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 interface Props {
   message: string
   onConfirm: () => void
@@ -5,6 +7,18 @@ interface Props {
 }
 
 export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    cancelRef.current?.focus()
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onCancel])
+
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div
@@ -15,7 +29,7 @@ export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
       >
         <p>{message}</p>
         <div className="form-actions">
-          <button type="button" onClick={onCancel}>
+          <button type="button" ref={cancelRef} onClick={onCancel}>
             취소
           </button>
           <button type="button" className="btn-danger" onClick={onConfirm}>

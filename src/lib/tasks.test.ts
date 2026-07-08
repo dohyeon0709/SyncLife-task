@@ -108,18 +108,48 @@ describe('replaceTask', () => {
 
 describe('filterTasks', () => {
   const tasks = [
-    make('a', { title: 'Fix login bug', priority: 'high' }),
-    make('b', { title: 'Write docs', priority: 'low' }),
-    make('c', { title: 'Fix docs typo', priority: 'low' }),
+    make('a', { title: 'Fix login bug', priority: 'high', tags: ['bug'] }),
+    make('b', { title: 'Write docs', priority: 'low', tags: ['docs'] }),
+    make('c', {
+      title: 'Fix docs typo',
+      priority: 'low',
+      tags: ['docs', 'bug'],
+    }),
   ]
 
   it('검색어와 우선순위를 동시에 적용한다', () => {
-    const result = filterTasks(tasks, { search: 'fix', priority: 'low' })
+    const result = filterTasks(tasks, {
+      search: 'fix',
+      priorities: ['low'],
+      tags: [],
+    })
     expect(result.map((t) => t.id)).toEqual(['c'])
   })
 
-  it('우선순위가 all이면 검색어만 적용한다', () => {
-    const result = filterTasks(tasks, { search: 'fix', priority: 'all' })
+  it('우선순위가 비어있으면 검색어만 적용한다', () => {
+    const result = filterTasks(tasks, {
+      search: 'fix',
+      priorities: [],
+      tags: [],
+    })
+    expect(result.map((t) => t.id)).toEqual(['a', 'c'])
+  })
+
+  it('여러 우선순위를 동시에 선택하면 그중 하나라도 맞으면 포함한다', () => {
+    const result = filterTasks(tasks, {
+      search: '',
+      priorities: ['high', 'low'],
+      tags: [],
+    })
+    expect(result.map((t) => t.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('태그 중 하나라도 일치하면 포함한다', () => {
+    const result = filterTasks(tasks, {
+      search: '',
+      priorities: [],
+      tags: ['bug'],
+    })
     expect(result.map((t) => t.id)).toEqual(['a', 'c'])
   })
 })

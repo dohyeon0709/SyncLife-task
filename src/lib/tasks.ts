@@ -36,11 +36,20 @@ export function filterByTitle(tasks: Task[], query: string): Task[] {
 
 export function filterTasks(
   tasks: Task[],
-  { search, priority }: { search: string; priority: Priority | 'all' },
+  {
+    search,
+    priorities,
+    tags,
+  }: { search: string; priorities: Priority[]; tags: string[] },
 ): Task[] {
-  const bySearch = filterByTitle(tasks, search)
-  if (priority === 'all') return bySearch
-  return bySearch.filter((t) => t.priority === priority)
+  let result = filterByTitle(tasks, search)
+  if (priorities.length > 0) {
+    result = result.filter((t) => priorities.includes(t.priority))
+  }
+  if (tags.length > 0) {
+    result = result.filter((t) => t.tags?.some((tag) => tags.includes(tag)))
+  }
+  return result
 }
 
 export function groupByStatus(tasks: Task[]): Record<Status, Task[]> {

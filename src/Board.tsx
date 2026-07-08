@@ -30,9 +30,13 @@ const COLUMNS: { status: Status; title: string }[] = [
 
 export default function Board() {
   const queryClient = useQueryClient()
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [toast, setToast] = useState<{
+    message: string
+    onRetry?: () => void
+  } | null>(null)
   const [search, setSearch] = useState('')
-  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all')
+  const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null)
@@ -64,7 +68,6 @@ export default function Board() {
       try {
         return await updateTask(id, { status, version })
       } catch (err) {
-        // 409(버전 충돌)면 서버가 알려준 최신 version으로 한 번만 재시도한다.
         if (err instanceof ApiError && err.status === 409) {
           const current = (err.payload as { current: Task }).current
           return await updateTask(id, { status, version: current.version })
@@ -84,9 +87,10 @@ export default function Board() {
     onError: (_err, vars, context) => {
       if (moveSeqRef.current.get(vars.id) !== vars.seq) return
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(
-        `"${vars.title}" 이동에 실패했습니다. 이전 상태로 되돌렸습니다.`,
-      )
+      setToast({
+        message: `"${vars.title}" 이동에 실패했습니다. 이전 상태로 되돌렸습니다.`,
+        onRetry: () => moveTask(vars.id, vars.status),
+      })
     },
     onSuccess: (serverTask, vars) => {
       if (moveSeqRef.current.get(vars.id) !== vars.seq) return
@@ -127,7 +131,10 @@ export default function Board() {
     },
     onError: (_err, values, context) => {
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(`"${values.title}" 생성에 실패했습니다.`)
+      setToast({
+        message: `"${values.title}" 생성에 실패했습니다.`,
+        onRetry: () => createMutation.mutate(values),
+      })
     },
     onSuccess: (serverTask, _values, context) => {
       queryClient.setQueryData<Task[]>(
@@ -173,9 +180,23 @@ export default function Board() {
       )
       return { previous }
     },
-    onError: (_err, vars, context) => {
+    onError: (err, vars, context) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const current = (err.payload as { current: Task }).current
+        queryClient.setQueryData<Task[]>(
+          ['tasks'],
+          (prev) => prev && replaceTask(prev, vars.id, current),
+        )
+        setToast({
+          message: `"${vars.title}"이(가) 이미 변경되었습니다. 최신 내용으로 갱신했습니다. 다시 수정해 주세요.`,
+        })
+        return
+      }
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(`"${vars.title}" 수정에 실패했습니다.`)
+      setToast({
+        message: `"${vars.title}" 수정에 실패했습니다.`,
+        onRetry: () => editMutation.mutate(vars),
+      })
     },
     onSuccess: (serverTask) => {
       queryClient.setQueryData<Task[]>(
@@ -198,7 +219,10 @@ export default function Board() {
     },
     onError: (_err, task, context) => {
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(`"${task.title}" 삭제에 실패했습니다.`)
+      setToast({
+        message: `"${task.title}" 삭제에 실패했습니다.`,
+        onRetry: () => deleteMutation.mutate(task),
+      })
     },
   })
 
@@ -216,12 +240,37 @@ export default function Board() {
     })
   }
 
+  const allTags = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of tasks ?? []) {
+      for (const tag of t.tags ?? []) set.add(tag)
+    }
+    return [...set].sort()
+  }, [tasks])
+
   const filteredTasks = useMemo(
-    () => filterTasks(tasks ?? [], { search, priority: priorityFilter }),
-    [tasks, search, priorityFilter],
+    () =>
+      filterTasks(tasks ?? [], {
+        search,
+        priorities: selectedPriorities,
+        tags: selectedTags,
+      }),
+    [tasks, search, selectedPriorities, selectedTags],
   )
 
   const byStatus = useMemo(() => groupByStatus(filteredTasks), [filteredTasks])
+
+  const togglePriority = (p: Priority) => {
+    setSelectedPriorities((prev) =>
+      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+    )
+  }
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((x) => x !== tag) : [...prev, tag],
+    )
+  }
 
   if (isPending) {
     return <p className="hint">불러오는 중…</p>
@@ -253,17 +302,32 @@ export default function Board() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select
-          value={priorityFilter}
-          onChange={(e) =>
-            setPriorityFilter(e.target.value as Priority | 'all')
-          }
-        >
-          <option value="all">All</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
+        <div className="filter-group">
+          {(['high', 'medium', 'low'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={`chip ${selectedPriorities.includes(p) ? 'chip-active' : ''}`}
+              onClick={() => togglePriority(p)}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+        {allTags.length > 0 && (
+          <div className="filter-group">
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={`chip ${selectedTags.includes(tag) ? 'chip-active' : ''}`}
+                onClick={() => toggleTag(tag)}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
+        )}
         <button className="btn-primary" onClick={() => setIsCreateOpen(true)}>
           + 새 태스크
         </button>
@@ -333,7 +397,11 @@ export default function Board() {
           />
         ))}
       </div>
-      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      <Toast
+        message={toast?.message ?? null}
+        onDismiss={() => setToast(null)}
+        onRetry={toast?.onRetry}
+      />
     </>
   )
 }
