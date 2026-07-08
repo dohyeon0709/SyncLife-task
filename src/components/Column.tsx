@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Task, Status } from '../types'
 import { Card } from './Card'
@@ -15,6 +15,7 @@ const ESTIMATED_ROW_HEIGHT = 78
 
 export function Column({ title, status, tasks, onMove, onEdit }: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
+  const [focusedIndex, setFocusedIndex] = useState(0)
 
   const virtualizer = useVirtualizer({
     count: tasks.length,
@@ -22,6 +23,20 @@ export function Column({ title, status, tasks, onMove, onEdit }: Props) {
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     overscan: 8,
   })
+
+  const focusCardAt = (index: number) => {
+    const clamped = Math.max(0, Math.min(index, tasks.length - 1))
+    setFocusedIndex(clamped)
+    virtualizer.scrollToIndex(clamped)
+    requestAnimationFrame(() => {
+      parentRef.current
+        ?.querySelector<HTMLElement>(`[data-index="${clamped}"] .card`)
+        ?.focus()
+    })
+  }
+
+  const safeFocusedIndex =
+    tasks.length === 0 ? -1 : Math.min(focusedIndex, tasks.length - 1)
 
   return (
     <section
@@ -55,7 +70,13 @@ export function Column({ title, status, tasks, onMove, onEdit }: Props) {
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <Card task={task} onClick={onEdit} />
+                <Card
+                  task={task}
+                  onClick={onEdit}
+                  tabIndex={virtualRow.index === safeFocusedIndex ? 0 : -1}
+                  onArrowDown={() => focusCardAt(virtualRow.index + 1)}
+                  onArrowUp={() => focusCardAt(virtualRow.index - 1)}
+                />
               </div>
             )
           })}
