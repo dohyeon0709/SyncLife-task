@@ -30,7 +30,10 @@ const COLUMNS: { status: Status; title: string }[] = [
 
 export default function Board() {
   const queryClient = useQueryClient()
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [toast, setToast] = useState<{
+    message: string
+    onRetry?: () => void
+  } | null>(null)
   const [search, setSearch] = useState('')
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
@@ -84,9 +87,10 @@ export default function Board() {
     onError: (_err, vars, context) => {
       if (moveSeqRef.current.get(vars.id) !== vars.seq) return
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(
-        `"${vars.title}" 이동에 실패했습니다. 이전 상태로 되돌렸습니다.`,
-      )
+      setToast({
+        message: `"${vars.title}" 이동에 실패했습니다. 이전 상태로 되돌렸습니다.`,
+        onRetry: () => moveTask(vars.id, vars.status),
+      })
     },
     onSuccess: (serverTask, vars) => {
       if (moveSeqRef.current.get(vars.id) !== vars.seq) return
@@ -127,7 +131,10 @@ export default function Board() {
     },
     onError: (_err, values, context) => {
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(`"${values.title}" 생성에 실패했습니다.`)
+      setToast({
+        message: `"${values.title}" 생성에 실패했습니다.`,
+        onRetry: () => createMutation.mutate(values),
+      })
     },
     onSuccess: (serverTask, _values, context) => {
       queryClient.setQueryData<Task[]>(
@@ -180,13 +187,16 @@ export default function Board() {
           ['tasks'],
           (prev) => prev && replaceTask(prev, vars.id, current),
         )
-        setToastMessage(
-          `"${vars.title}"이(가) 이미 변경되었습니다. 최신 내용으로 갱신했습니다. 다시 수정해 주세요.`,
-        )
+        setToast({
+          message: `"${vars.title}"이(가) 이미 변경되었습니다. 최신 내용으로 갱신했습니다. 다시 수정해 주세요.`,
+        })
         return
       }
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(`"${vars.title}" 수정에 실패했습니다.`)
+      setToast({
+        message: `"${vars.title}" 수정에 실패했습니다.`,
+        onRetry: () => editMutation.mutate(vars),
+      })
     },
     onSuccess: (serverTask) => {
       queryClient.setQueryData<Task[]>(
@@ -209,7 +219,10 @@ export default function Board() {
     },
     onError: (_err, task, context) => {
       queryClient.setQueryData(['tasks'], context?.previous)
-      setToastMessage(`"${task.title}" 삭제에 실패했습니다.`)
+      setToast({
+        message: `"${task.title}" 삭제에 실패했습니다.`,
+        onRetry: () => deleteMutation.mutate(task),
+      })
     },
   })
 
@@ -384,7 +397,11 @@ export default function Board() {
           />
         ))}
       </div>
-      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      <Toast
+        message={toast?.message ?? null}
+        onDismiss={() => setToast(null)}
+        onRetry={toast?.onRetry}
+      />
     </>
   )
 }
